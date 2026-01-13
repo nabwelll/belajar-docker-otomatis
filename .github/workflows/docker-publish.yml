@@ -24,4 +24,4 @@ jobs:
           context: .
           push: true
           # Ganti 'nabwelll' dengan username kamu
-          tags: nabwelll/belajar-cik:latest, nabwelll/belajar-cik:v4  # <--- Ganti v3 jadi v4
+          tags: nabwelll/belajar-cik:latest, nabwelll/belajar-cik:v5 
