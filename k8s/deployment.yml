@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: container-aplikasi
-        image: nabwelll/belajar-cik:v6
+        image: nabwelll/belajar-cik:v7
         ports:
         - containerPort: 3300
         envFrom:
