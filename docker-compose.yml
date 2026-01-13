@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  # Container 1: Aplikasi Node.js Kamu
+  app-saya:
+    build: .
+    ports:
+      - "8080:3300"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+    # Perintah buat auto-restart (Hot Reload)
+    command: npx nodemon server.js
+    volumes:
+      - .:/app                 # Jendela ke laptop
+      - /app/node_modules      # Biar folder library container aman
+
+

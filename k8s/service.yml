@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aplikasi-cik-service
+spec:
+  type: LoadBalancer       # Trik: Biar langsung connect ke Localhost laptop
+  selector:
+    app: aplikasi-cik      # Cari Pod yang labelnya 'aplikasi-cik'
+  ports:
+    - protocol: TCP
+      port: 8080           # Pintu di Laptop Kamu (Browser)
+      targetPort: 3300     # Pintu di Aplikasi Node.js

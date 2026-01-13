@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aplikasi-cik-deployment
+spec:
+  replicas: 1  # Kita minta 1 kembaran (Pod) dulu
+  selector:
+    matchLabels:
+      app: aplikasi-cik
+  template:
+    metadata:
+      labels:
+        app: aplikasi-cik
+    spec:
+      containers:
+      - name: container-aplikasi
+        image: nabwelll/belajar-cik:v2
+        ports:
+        - containerPort: 3300
+        envFrom:
+        - secretRef:
+            name: rahasia-aplikasi-saya  # <--- Ambil env dari file secret.yml tadi
