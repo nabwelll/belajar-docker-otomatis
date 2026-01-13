@@ -1,0 +1,27 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [ "main" ] # Robot bekerja cuma kalau ada push ke 'main'
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest # Robotnya jalan di komputer Ubuntu sewaan (Gratis)
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }} # Ambil dari brankas GitHub
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Ganti 'nabwelll' dengan username kamu
+          tags: nabwelll/belajar-cik:latest, nabwelll/belajar-cik:v3

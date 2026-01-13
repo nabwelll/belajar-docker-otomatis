@@ -20,7 +20,7 @@ const server = http.createServer(async (req, res) => {
     const count = await client.incr('pengunjung');
     
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.write('VERSI 2 NIH BOS! 🔥\n');
+    res.write('VERSI GITHUB ACTION NIH BOS! 🔥\n');
     res.end(`Data ini diambil dari Redis Container!\n`);
 });
 
