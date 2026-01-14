@@ -24,4 +24,4 @@ jobs:
           context: .
           push: true
           # Ganti 'nabwelll' dengan username kamu
-          tags: nabwelll/belajar-cik:latest, nabwelll/belajar-cik:v8
+          tags: nabwelll/belajar-cik:latest, nabwelll/belajar-cik:v9

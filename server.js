@@ -1,6 +1,7 @@
 const express = require('express');
 const redis = require('redis');
 const app = express();
+const axios = require('axios'); 
 
 // Biar IP Address asli user kebaca (karena kita di belakang LoadBalancer K8s)
 app.set('trust proxy', true); 
@@ -114,6 +115,20 @@ app.post('/hitung', cekSpam, async (req, res) => {
     };
     
     await client.rPush('riwayat_transaksi', JSON.stringify(dataNasabah));
+
+    await client.rPush('riwayat_transaksi', JSON.stringify(dataNasabah));
+
+
+// Panggil Microservice Email (Lewat jaringan internal Kubernetes)
+try {
+    await axios.post('http://email-service-svc:80/kirim-email', {
+        nama: nama,
+        status: 'AKTIF (Premi Sudah Dihitung)'
+    });
+    console.log("Perintah kirim email sudah diteruskan.");
+} catch (error) {
+    console.log("Gagal kontak Email Service:", error.message);
+}
 
     res.send(`
         <div style="font-family: sans-serif; text-align: center; padding: 50px;">
