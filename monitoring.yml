@@ -1,26 +1,21 @@
 version: '3.8'
 
 services:
-  influxdb:
-    image: influxdb:1.8
+  # 1. SI PENGUMPUL DATA (DEBT COLLECTOR)
+  prometheus:
+    image: prom/prometheus:latest
     ports:
-      - "8086:8086"
-    environment:
-      - INFLUXDB_DB=k6
-    networks:
-      - monitor-net
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml # Masukin config yang kita buat tadi
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Biar bisa akses laptop kamu
 
+  # 2. SI LAYAR TV (VISUALISASI)
   grafana:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
-    networks:
-      - monitor-net
     environment:
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin # Biar gak usah login user/pass
       - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_SECURITY_ALLOW_EMBEDDING=true
-
-networks:
-  monitor-net:
-    driver: bridge

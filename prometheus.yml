@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s # Cek detak jantung setiap 5 detik
+
+scrape_configs:
+  - job_name: 'aplikasi-asuransi'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8080'] 
+      # host.docker.internal = Cara ajaib Docker Mac buat akses localhost laptop
