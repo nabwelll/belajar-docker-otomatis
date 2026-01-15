@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email-service
+  template:
+    metadata:
+      labels:
+        app: email-service
+    spec:
+      containers:
+      - name: container-email
+        image: nabwelll/belajar-cik:v9 # Pake image yang SAMA
+        command: ["node", "email-service.js"] # <--- INI BEDANYA! Kita suruh dia jalanin file email.
+        ports:
+        - containerPort: 4000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: email-service-svc # <--- Nama panggilan di jaringan (DNS)
+spec:
+  selector:
+    app: email-service
+  ports:
+    - protocol: TCP
+      port: 80        # Port pintu depan
+      targetPort: 4000 # Port aplikasi

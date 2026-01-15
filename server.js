@@ -2,11 +2,24 @@ const express = require('express');
 const redis = require('redis');
 const app = express();
 const axios = require('axios'); 
+const clientProm = require('prom-client'); 
+
+app.set('trust proxy', true); 
+app.use(express.urlencoded({ extended: true }));
 
 // Biar IP Address asli user kebaca (karena kita di belakang LoadBalancer K8s)
 app.set('trust proxy', true); 
-
 app.use(express.urlencoded({ extended: true }));
+
+// <--- 2. Setup Metrics Default (CPU, RAM, dll) --->
+const collectDefaultMetrics = clientProm.collectDefaultMetrics;
+collectDefaultMetrics(); // Mulai rekam data kesehatan server
+
+// <--- 3. Bikin Halaman Khusus buat Laporan ke Prometheus --->
+app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', clientProm.register.contentType);
+    res.end(await clientProm.register.metrics());
+});
 
 // --- SETUP REDIS ---
 const client = redis.createClient({
