@@ -152,7 +152,10 @@ try {
     `);
 });
 
-const PORT = 3300;
+// Dulu: const PORT = 3300;
+// Sekarang: Ambil port dari Cloud, kalau gak ada baru pake 3300
+const PORT = process.env.PORT || 3300; 
+
 app.listen(PORT, () => {
-    console.log(`Server Security jalan di port ${PORT}`);
+    console.log(`Server v10 jalan di port ${PORT}`);
 });
