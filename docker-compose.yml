@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Container 1: Aplikasi Node.js Kamu
+  # 1. APLIKASI UTAMA (WEBSITE)
   app-saya:
     build: .
     ports:
@@ -10,10 +10,34 @@ services:
       - .env
     environment:
       - NODE_ENV=development
-    # Perintah buat auto-restart (Hot Reload)
+    # 👇 INI BENAR: Menjalankan file website (app_final.js)
     command: npx nodemon server.js
     volumes:
-      - .:/app                 # Jendela ke laptop
-      - /app/node_modules      # Biar folder library container aman
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - rabbitmq
 
+  # 2. EMAIL SERVICE (TUKANG POS)
+  email-service:
+    build: .
+    # 👇 INI YANG DIPERBAIKI: Menjalankan script worker (email-service.js)
+    command: npx nodemon email-service.js
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
+  # 3. RABBITMQ (KANTOR POS)
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"   # Jalur Surat
+      - "15672:15672" # Jalur Dashboard
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

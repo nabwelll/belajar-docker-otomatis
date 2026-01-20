@@ -1,161 +1,108 @@
 const express = require('express');
 const redis = require('redis');
-const app = express();
-const axios = require('axios'); 
+const amqp = require('amqplib');
 const clientProm = require('prom-client'); 
+const jwt = require('jsonwebtoken'); 
+const cookieParser = require('cookie-parser'); 
 
+const app = express();
 app.set('trust proxy', true); 
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser()); 
 
-// Biar IP Address asli user kebaca (karena kita di belakang LoadBalancer K8s)
-app.set('trust proxy', true); 
-app.use(express.urlencoded({ extended: true }));
+const SECRET_KEY = "rahasia-negara-api"; 
 
-// <--- 2. Setup Metrics Default (CPU, RAM, dll) --->
+// --- 1. SETUP REDIS ---
+const client = redis.createClient({ 
+    url: process.env.REDIS_URL,
+    socket: { reconnectStrategy: (retries) => 1000 }
+});
+client.on('error', (err) => console.log('⚠️ Redis Error:', err));
+(async () => { try { await client.connect(); console.log('✅ Redis Connected'); } catch (e) {} })();
+
+// --- 2. METRICS ---
 const collectDefaultMetrics = clientProm.collectDefaultMetrics;
-collectDefaultMetrics(); // Mulai rekam data kesehatan server
-
-// <--- 3. Bikin Halaman Khusus buat Laporan ke Prometheus --->
+collectDefaultMetrics(); 
 app.get('/metrics', async (req, res) => {
     res.set('Content-Type', clientProm.register.contentType);
     res.end(await clientProm.register.metrics());
 });
 
-// --- SETUP REDIS ---
-const client = redis.createClient({
-    url: process.env.REDIS_URL
-});
-
-(async () => {
-    client.on('error', (err) => console.log('Redis Client Error', err));
-    await client.connect();
-    console.log('Terhubung ke Redis Cloud!');
-})();
-
-// --- FITUR BARU: SATPAM ANTI-SPAM (Rate Limiter) ---
-// Middleware ini akan mencegat setiap request sebelum masuk ke logic utama
-async function cekSpam(req, res, next) {
-    const ipUser = req.ip; // Ambil IP Address pengunjung
-    const kunciSpam = `spam:${ipUser}`; // Contoh key: spam:192.168.1.5
-
+// --- 3. SATPAM (MIDDLEWARE) ---
+const cekLogin = (req, res, next) => {
+    const token = req.cookies.token_vip;
+    if (!token) return res.redirect('/login');
     try {
-        // 1. Cek sudah berapa kali dia akses?
-        const jumlahAkses = await client.incr(kunciSpam);
-
-        // 2. Kalau ini akses pertama, pasang timer 60 detik (Reset tiap menit)
-        if (jumlahAkses === 1) {
-            await client.expire(kunciSpam, 60);
-        }
-
-        // 3. ATURAN: Maksimal 5 kali per menit
-        if (jumlahAkses > 5) {
-            // Sisa waktu hukuman
-            const sisaWaktu = await client.ttl(kunciSpam);
-            
-            return res.status(429).send(`
-                <div style="text-align: center; padding: 50px; font-family: sans-serif;">
-                    <h1 style="color: red; font-size: 80px;">⛔️</h1>
-                    <h2>Woi, Santai Dong!</h2>
-                    <p>Anda terdeteksi melakukan spam.</p>
-                    <p>Tunggu <b>${sisaWaktu} detik</b> lagi sebelum mencoba.</p>
-                </div>
-            `);
-        }
-
-        // Kalau aman (kurang dari 5), lanjut ke bawah!
+        const user = jwt.verify(token, SECRET_KEY);
+        req.user = user;
         next();
     } catch (err) {
-        console.error(err);
-        next(); // Kalau Redis error, lolosin aja biar aplikasi gak mati
+        res.clearCookie('token_vip');
+        return res.redirect('/login');
     }
-}
+};
 
-// LOGIKA HITUNG HARGA
-function hitungPremi(umur, perokok) {
-    let hargaDasar = 500000;
-    if (umur > 20) hargaDasar += (umur - 20) * 10000;
-    if (perokok === 'ya') hargaDasar = hargaDasar * 2;
-    return hargaDasar;
-}
-
-const rupiah = (number) => {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR" }).format(number);
-}
-
-// --- ROUTES ---
-
-app.get('/', async (req, res) => {
-    let totalPolis = await client.get('total_polis') || 0;
+// --- 4. ROUTES ---
+app.get('/login', (req, res) => {
     res.send(`
-        <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-            <h1>🛡️ Asuransi Jiwa "Anti-Spam"</h1>
-            <h3>Polis Terbit: ${totalPolis} | Server: v8 Security</h3>
-            
-            <div style="background: #e3f2fd; padding: 20px; display: inline-block; border-radius: 10px;">
-                <form action="/hitung" method="POST">
-                    <p><label>Nama:</label><br><input type="text" name="nama" required></p>
-                    <p><label>Umur:</label><br><input type="number" name="umur" required></p>
-                    <p>
-                        <label>Perokok?</label><br>
-                        <select name="perokok">
-                            <option value="tidak">Tidak</option>
-                            <option value="ya">Ya</option>
-                        </select>
-                    </p>
-                    <button type="submit" style="background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px;">
-                        Simpan Data
-                    </button>
-                </form>
-            </div>
-            <p><small>Limit: 5 request / menit</small></p>
+        <div style="text-align:center; padding:50px; font-family:sans-serif;">
+            <h1>🔐 LOGIN SYSTEM FINAL</h1>
+            <p>Admin / 1234</p>
+            <form action="/login" method="POST">
+                <input type="text" name="username" placeholder="Username" required><br><br>
+                <input type="password" name="password" placeholder="Password" required><br><br>
+                <button type="submit">MASUK</button>
+            </form>
         </div>
     `);
 });
 
-// PASANG SATPAM DI SINI! (middleware cekSpam)
-app.post('/hitung', cekSpam, async (req, res) => {
-    const { nama, umur, perokok } = req.body;
-    const harga = hitungPremi(parseInt(umur), perokok);
-    
-    await client.incr('total_polis');
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === 'admin' && password === '1234') {
+        const token = jwt.sign({ username, role: 'boss' }, SECRET_KEY, { expiresIn: '1h' });
+        res.cookie('token_vip', token, { httpOnly: true }); 
+        res.redirect('/');
+    } else {
+        res.send('Password Salah!');
+    }
+});
 
-    const dataNasabah = {
-        nama: nama, 
-        umur: umur, 
-        status_perokok: perokok, 
-        harga_premi: harga,
-        waktu: new Date().toLocaleString()
-    };
-    
-    await client.rPush('riwayat_transaksi', JSON.stringify(dataNasabah));
+app.get('/logout', (req, res) => {
+    res.clearCookie('token_vip');
+    res.redirect('/login');
+});
 
-    await client.rPush('riwayat_transaksi', JSON.stringify(dataNasabah));
-
-
-// Panggil Microservice Email (Lewat jaringan internal Kubernetes)
-try {
-    await axios.post('http://email-service-svc:80/kirim-email', {
-        nama: nama,
-        status: 'AKTIF (Premi Sudah Dihitung)'
-    });
-    console.log("Perintah kirim email sudah diteruskan.");
-} catch (error) {
-    console.log("Gagal kontak Email Service:", error.message);
-}
+// Halaman Utama (Dijaga Satpam)
+app.get('/', cekLogin, async (req, res) => {
+    let totalPolis = 0;
+    try { if(client.isOpen) totalPolis = await client.get('total_polis') || 0; } catch(e){}
 
     res.send(`
         <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-            <h1>✅ Berhasil Disimpan!</h1>
-            <h2>Halo, ${nama}</h2>
-            <a href="/">Kembali</a>
+            <h1>🚀 DASHBOARD FINAL (SUKSES)</h1>
+            <h3>Halo Bos ${req.user.username}!</h3>
+            <h3>Total Polis: ${totalPolis}</h3>
+            <form action="/hitung" method="POST">
+                <input type="text" name="nama" placeholder="Nama"><br>
+                <button type="submit">Simpan</button>
+            </form>
+            <br><a href="/logout" style="color:red">LOGOUT</a>
         </div>
     `);
 });
 
-// Dulu: const PORT = 3300;
-// Sekarang: Ambil port dari Cloud, kalau gak ada baru pake 3300
+app.post('/hitung', cekLogin, async (req, res) => {
+    const { nama } = req.body;
+    try { if(client.isOpen) await client.incr('total_polis'); } catch(e){}
+    try {
+        const conn = await amqp.connect('amqp://rabbitmq');
+        const ch = await conn.createChannel();
+        await ch.assertQueue('antrian_email');
+        ch.sendToQueue('antrian_email', Buffer.from(JSON.stringify({ nama, status:'OK' })));
+    } catch(e) {}
+    res.redirect('/');
+});
+
 const PORT = process.env.PORT || 3300; 
-
-app.listen(PORT, () => {
-    console.log(`Server v10 jalan di port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server FINAL KEMBALI KE LAPTOP jalan di port ${PORT}`));

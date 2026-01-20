@@ -1,20 +1,43 @@
 const express = require('express');
+const amqp = require('amqplib'); // Import library
 const app = express();
 
-app.use(express.json());
+async function startWorker() {
+    try {
+        // Tunggu RabbitMQ nyala dulu (karena dia agak lama bangun tidur)
+        await new Promise(resolve => setTimeout(resolve, 10000));
 
-app.post('/kirim-email', (req, res) => {
-    const { nama, status } = req.body;
-    
-    // Pura-pura kirim email (Log ke layar server)
-    console.log(`[EMAIL SERVICE] 📨 Mengirim Email ke: ${nama}`);
-    console.log(`[EMAIL CONTENT] "Halo ${nama}, status asuransi kamu: ${status}"`);
-    console.log(`------------------------------------------------`);
+        // 1. Konek ke RabbitMQ
+        const connection = await amqp.connect('amqp://rabbitmq');
+        const channel = await connection.createChannel();
+        const queue = 'antrian_email';
 
-    res.json({ message: 'Email berhasil dikirim bos!' });
-});
+        // 2. Siapkan Kotak Surat
+        await channel.assertQueue(queue, { durable: true });
+        console.log("📬 Menunggu pesan di antrian...");
 
-const PORT = 4000; // Jalan di port beda (4000)
+        // 3. Proses Surat yang Masuk
+        channel.consume(queue, (msg) => {
+            if (msg !== null) {
+                const data = JSON.parse(msg.content.toString());
+                
+                // Pura-pura kirim email (Loading 2 detik)
+                setTimeout(() => {
+                    console.log(`📧 MENGIRIM EMAIL KE: ${data.nama} | Tagihan: ${data.harga}`);
+                    // Bilang ke RabbitMQ: "Tugas Selesai, Hapus surat ini"
+                    channel.ack(msg); 
+                }, 2000);
+            }
+        });
+
+    } catch (error) {
+        console.log("Error Worker:", error);
+    }
+}
+
+startWorker(); // Jalankan Worker
+
+const PORT = 80;
 app.listen(PORT, () => {
-    console.log(`📮 Email Service standby di port ${PORT}`);
+    console.log(`Email Service jalan di port ${PORT}`);
 });
