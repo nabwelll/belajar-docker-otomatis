@@ -91,7 +91,7 @@ app.get('/', cekLogin, async (req, res) => {
     try { if(client.isOpen) totalPolis = await client.get('total_polis') || 0; } catch(e){}
 
     // Hitung sisa waktu session
-    const tokenExp = req.user.exp; // Unix timestamp
+    const tokenExp = req.user.exp || Math.floor(Date.now() / 1000); // Unix timestamp
     const now = Math.floor(Date.now() / 1000);
     const remainingMinutes = Math.max(0, Math.floor((tokenExp - now) / 60));
 
