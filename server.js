@@ -93,7 +93,7 @@ app.get('/', cekLogin, async (req, res) => {
     // Hitung sisa waktu session
     const tokenExp = req.user.exp; // Unix timestamp
     const now = Math.floor(Date.now() / 1000);
-    const remainingMinutes = Math.floor((tokenExp - now) / 60);
+    const remainingMinutes = Math.max(0, Math.floor((tokenExp - now) / 60));
 
     res.send(`
         <div style="font-family: sans-serif; text-align: center; padding: 50px;">
