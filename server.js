@@ -38,7 +38,14 @@ const cekLogin = (req, res, next) => {
         next();
     } catch (err) {
         res.clearCookie('token_vip');
-        return res.redirect('/login');
+        // Redirect dengan pesan session expired
+        return res.send(`
+            <div style="text-align: center; padding: 50px; font-family: sans-serif;">
+                <h2 style="color: red;">⚠️ Session Expired</h2>
+                <p>Silakan login kembali</p>
+                <a href="/login" style="padding: 10px 20px; background: blue; color: white; text-decoration: none; border-radius: 5px;">Ke Halaman Login</a>
+            </div>
+        `);
     }
 };
 
@@ -60,8 +67,13 @@ app.get('/login', (req, res) => {
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     if (username === 'admin' && password === '1234') {
-        const token = jwt.sign({ username, role: 'boss' }, SECRET_KEY, { expiresIn: '1h' });
-        res.cookie('token_vip', token, { httpOnly: true }); 
+        const token = jwt.sign({ username, role: 'boss' }, SECRET_KEY, { expiresIn: '15m' });
+        res.cookie('token_vip', token, { 
+            httpOnly: true,
+            sameSite: 'lax',
+            path: '/',
+            // JANGAN set maxAge agar menjadi session cookie (hilang saat browser ditutup)
+        }); 
         res.redirect('/');
     } else {
         res.send('Password Salah!');
@@ -78,11 +90,17 @@ app.get('/', cekLogin, async (req, res) => {
     let totalPolis = 0;
     try { if(client.isOpen) totalPolis = await client.get('total_polis') || 0; } catch(e){}
 
+    // Hitung sisa waktu session
+    const tokenExp = req.user.exp; // Unix timestamp
+    const now = Math.floor(Date.now() / 1000);
+    const remainingMinutes = Math.floor((tokenExp - now) / 60);
+
     res.send(`
         <div style="font-family: sans-serif; text-align: center; padding: 50px;">
             <h1>🚀 DASHBOARD FINAL (SUKSES)</h1>
             <h3>Halo Bos ${req.user.username}!</h3>
             <h3>Total Polis: ${totalPolis}</h3>
+            <p style="color: gray; font-size: 12px;">Session berakhir dalam ${remainingMinutes} menit</p>
             <form action="/hitung" method="POST">
                 <input type="text" name="nama" placeholder="Nama"><br>
                 <button type="submit">Simpan</button>
