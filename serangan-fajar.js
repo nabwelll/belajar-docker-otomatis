@@ -1,38 +1,30 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-// KONFIGURASI SERANGAN
 export const options = {
-  // Kita bikin 3 tahap serangan
   stages: [
-    { duration: '10s', target: 50 },  // Pemanasan: Naik ke 50 user dalam 10 detik
-    { duration: '30s', target: 200 }, // Puncak: Tahan 200 user barengan selama 30 detik
-    { duration: '10s', target: 0 },   // Pendinginan: Turun ke 0
+    { duration: '10s', target: 50 },
+    { duration: '30s', target: 200 },
+    { duration: '10s', target: 0 },
   ],
 };
 
 export default function () {
-  // Data user palsu
-  const payload = JSON.stringify({
-    nama: 'User Robot',
-    umur: 25,
-    perokok: 'tidak',
-  });
+  // Data form (URL-encoded, bukan JSON!)
+  const payload = 'nama=Robot&umur=25&perokok=tidak';
 
   const params = {
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': 'token_vip=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImJvc3MiLCJpYXQiOjE3NjkwNTE0MDUsImV4cCI6MTc2OTA1MjMwNX0.xe-MJted9-lm0uanxqPXBS-LuBVvy5VV_y-QQ5tlwMk'
     },
   };
 
-  // TEMBAK!
   const res = http.post('http://localhost:8080/hitung', payload, params);
 
-  // Cek hasilnya
   check(res, {
-    'status 200 (Berhasil)': (r) => r.status === 200,
-    'status 429 (Kena Blokir Satpam)': (r) => r.status === 429,
+    'status 302 (Redirect Berhasil)': (r) => r.status === 302 || r.status === 200,
   });
 
-  sleep(1); // Istirahat 1 detik sebelum nembak lagi
+  sleep(1);
 }

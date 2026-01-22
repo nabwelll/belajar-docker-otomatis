@@ -9,23 +9,22 @@ services:
     env_file:
       - .env
     environment:
-      - NODE_ENV=development
-    # 👇 INI BENAR: Menjalankan file website (app_final.js)
-    command: npx nodemon server.js
-    volumes:
-      - .:/app
-      - /app/node_modules
+      - NODE_ENV=production
+      # 👇 TAMBAHAN KONEKSI DATABASE:
+      - DB_USER=postgres
+      - DB_PASS=password123
+      - DB_NAME=asuransi_db
+      - DB_HOST=db
+    command: node server.js
     depends_on:
       - rabbitmq
+      - db # Tunggu database nyala dulu
 
   # 2. EMAIL SERVICE (TUKANG POS)
   email-service:
     build: .
-    # 👇 INI YANG DIPERBAIKI: Menjalankan script worker (email-service.js)
-    command: npx nodemon email-service.js
-    volumes:
-      - .:/app
-      - /app/node_modules
+    command: node email-service.js
+    restart: unless-stopped
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -34,10 +33,27 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"   # Jalur Surat
-      - "15672:15672" # Jalur Dashboard
+      - "5672:5672"
+      - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # 4. DATABASE POSTGRESQL (LEVEL 3 - BARU!)
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: asuransi_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data # Kunci biar data AWET
+    ports:
+      - "5432:5432"
+
+# DEFINISI VOLUME (Harddisk Virtual)
+volumes:
+  pgdata:

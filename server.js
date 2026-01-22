@@ -1,7 +1,7 @@
 const express = require('express');
 const redis = require('redis');
 const amqp = require('amqplib');
-const clientProm = require('prom-client'); 
+const { Pool } = require('pg'); // SUPIR POSTGRES
 const jwt = require('jsonwebtoken'); 
 const cookieParser = require('cookie-parser'); 
 
@@ -12,21 +12,40 @@ app.use(cookieParser());
 
 const SECRET_KEY = "rahasia-negara-api"; 
 
-// --- 1. SETUP REDIS ---
+// --- 1. KONEKSI DATABASE PERMANEN (POSTGRES) ---
+const pool = new Pool({
+    user: process.env.DB_USER || 'postgres',
+    host: process.env.DB_HOST || 'db', // Nama service di docker-compose
+    database: process.env.DB_NAME || 'asuransi_db',
+    password: process.env.DB_PASS || 'password123',
+    port: 5432,
+});
+
+// Buat Tabel Otomatis saat server nyala
+(async () => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS polis (
+                id SERIAL PRIMARY KEY,
+                nama VARCHAR(100),
+                umur INT,
+                perokok VARCHAR(10),
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        `);
+        console.log("✅ Tabel Database Siap (PostgreSQL)!");
+    } catch (err) {
+        console.log("❌ Gagal bikin tabel:", err.message);
+    }
+})();
+
+// --- 2. SETUP REDIS (Hanya untuk Cache/Session) ---
 const client = redis.createClient({ 
     url: process.env.REDIS_URL,
     socket: { reconnectStrategy: (retries) => 1000 }
 });
-client.on('error', (err) => console.log('⚠️ Redis Error:', err));
+client.on('error', (err) => console.log('⚠️ Redis Error:', err.message));
 (async () => { try { await client.connect(); console.log('✅ Redis Connected'); } catch (e) {} })();
-
-// --- 2. METRICS ---
-const collectDefaultMetrics = clientProm.collectDefaultMetrics;
-collectDefaultMetrics(); 
-app.get('/metrics', async (req, res) => {
-    res.set('Content-Type', clientProm.register.contentType);
-    res.end(await clientProm.register.metrics());
-});
 
 // --- 3. SATPAM (MIDDLEWARE) ---
 const cekLogin = (req, res, next) => {
@@ -38,14 +57,7 @@ const cekLogin = (req, res, next) => {
         next();
     } catch (err) {
         res.clearCookie('token_vip');
-        // Redirect dengan pesan session expired
-        return res.send(`
-            <div style="text-align: center; padding: 50px; font-family: sans-serif;">
-                <h2 style="color: red;">⚠️ Session Expired</h2>
-                <p>Silakan login kembali</p>
-                <a href="/login" style="padding: 10px 20px; background: blue; color: white; text-decoration: none; border-radius: 5px;">Ke Halaman Login</a>
-            </div>
-        `);
+        return res.redirect('/login');
     }
 };
 
@@ -53,7 +65,7 @@ const cekLogin = (req, res, next) => {
 app.get('/login', (req, res) => {
     res.send(`
         <div style="text-align:center; padding:50px; font-family:sans-serif;">
-            <h1>🔐 LOGIN SYSTEM FINAL</h1>
+            <h1>🛡️ LOGIN SYSTEM (DB LEVEL 3)</h1>
             <p>Admin / 1234</p>
             <form action="/login" method="POST">
                 <input type="text" name="username" placeholder="Username" required><br><br>
@@ -68,59 +80,113 @@ app.post('/login', (req, res) => {
     const { username, password } = req.body;
     if (username === 'admin' && password === '1234') {
         const token = jwt.sign({ username, role: 'boss' }, SECRET_KEY, { expiresIn: '15m' });
-        res.cookie('token_vip', token, { 
-            httpOnly: true,
-            sameSite: 'lax',
-            path: '/',
-            // JANGAN set maxAge agar menjadi session cookie (hilang saat browser ditutup)
-        }); 
+        res.cookie('token_vip', token, { httpOnly: true }); 
         res.redirect('/');
     } else {
         res.send('Password Salah!');
     }
 });
 
-app.get('/logout', (req, res) => {
-    res.clearCookie('token_vip');
-    res.redirect('/login');
-});
+app.get('/logout', (req, res) => { res.clearCookie('token_vip'); res.redirect('/login'); });
 
-// Halaman Utama (Dijaga Satpam)
+// DASHBOARD: Ambil data dari POSTGRES (Bukan Redis lagi)
 app.get('/', cekLogin, async (req, res) => {
     let totalPolis = 0;
-    try { if(client.isOpen) totalPolis = await client.get('total_polis') || 0; } catch(e){}
+    let recentPolis = [];
 
-    // Hitung sisa waktu session
-    const tokenExp = req.user.exp || Math.floor(Date.now() / 1000); // Unix timestamp
-    const now = Math.floor(Date.now() / 1000);
-    const remainingMinutes = Math.max(0, Math.floor((tokenExp - now) / 60));
+    try {
+        // 1. Hitung Total (Query SQL)
+        const countRes = await pool.query('SELECT COUNT(*) FROM polis');
+        totalPolis = countRes.rows[0].count;
+
+        // 2. Ambil 5 Data Terakhir (Query SQL)
+        const dataRes = await pool.query('SELECT * FROM polis ORDER BY id DESC LIMIT 5');
+        recentPolis = dataRes.rows; // Data langsung jadi Array, enak!
+
+    } catch (err) { console.log("DB Error:", err.message); }
+
+    // Hitung sisa waktu token (UI kamu yang bagus tadi)
+    const tokenExp = req.user.exp || Math.floor(Date.now() / 1000);
+    const remainingMinutes = Math.max(0, Math.floor((tokenExp - Math.floor(Date.now()/1000)) / 60));
+
+    // Generate HTML Table
+    let polisTable = '';
+    if(recentPolis.length > 0) {
+        polisTable = `
+            <h3>📋 5 Polis Terakhir (Dari Database Permanen): </h3>
+            <table style="margin: 20px auto; border-collapse: collapse; width: 80%;">
+                <thead>
+                    <tr style="background: #28a745; color: white;"> <th style="padding: 10px;">ID</th>
+                        <th style="padding: 10px;">Nama</th>
+                        <th style="padding: 10px;">Umur</th>
+                        <th style="padding: 10px;">Perokok</th>
+                        <th style="padding: 10px;">Waktu</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${recentPolis.map(p => `
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">#${p.id}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">${p.nama}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">${p.umur}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">${p.perokok}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">${new Date(p.created_at).toLocaleString('id-ID')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
 
     res.send(`
         <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-            <h1>🚀 DASHBOARD FINAL (SUKSES)</h1>
+            <h1>🏢 DASHBOARD LEVEL 3 (POSTGRESQL)</h1>
             <h3>Halo Bos ${req.user.username}!</h3>
-            <h3>Total Polis: ${totalPolis}</h3>
-            <p style="color: gray; font-size: 12px;">Session berakhir dalam ${remainingMinutes} menit</p>
-            <form action="/hitung" method="POST">
-                <input type="text" name="nama" placeholder="Nama"><br>
-                <button type="submit">Simpan</button>
+            <h2 style="color: blue">Total Polis: ${totalPolis}</h2>
+            <p style="color: gray;">Session expires in: ${remainingMinutes} mins</p>
+            
+            <form action="/hitung" method="POST" style="max-width: 400px; margin: 20px auto;">
+                <input type="text" name="nama" placeholder="Nama" required style="width: 100%; padding: 10px; margin: 5px 0;"><br>
+                <input type="number" name="umur" placeholder="Umur" required style="width: 100%; padding: 10px; margin: 5px 0;"><br>
+                <label>Perokok?</label>
+                <select name="perokok" style="width: 100%; padding: 10px; margin: 5px 0;">
+                    <option value="Tidak">Tidak</option>
+                    <option value="Ya">Ya</option>
+                </select><br>
+                <button type="submit" style="width: 100%; padding: 10px; background: #28a745; color: white; border: none; cursor: pointer; margin-top: 10px;">Simpan Permanen</button>
             </form>
-            <br><a href="/logout" style="color:red">LOGOUT</a>
+            
+            ${polisTable}
+            <br><a href="/logout" style="color: red">LOGOUT</a>
         </div>
     `);
 });
 
 app.post('/hitung', cekLogin, async (req, res) => {
-    const { nama } = req.body;
-    try { if(client.isOpen) await client.incr('total_polis'); } catch(e){}
+    const { nama, umur, perokok } = req.body;
+    
     try {
+        // 1. SIMPAN KE POSTGRES (Harddisk)
+        // Kita pakai INSERT INTO, bukan Redis Set lagi
+        const insertRes = await pool.query(
+            'INSERT INTO polis (nama, umur, perokok) VALUES ($1, $2, $3) RETURNING id',
+            [nama, umur, perokok]
+        );
+        const newId = insertRes.rows[0].id;
+        console.log(`✅ Data tersimpan di DB dengan ID: ${newId}`);
+
+        // 2. Kirim RabbitMQ (Tetap sama kayak dulu)
         const conn = await amqp.connect('amqp://rabbitmq');
         const ch = await conn.createChannel();
         await ch.assertQueue('antrian_email');
-        ch.sendToQueue('antrian_email', Buffer.from(JSON.stringify({ nama, status:'OK' })));
-    } catch(e) {}
+        ch.sendToQueue('antrian_email', Buffer.from(JSON.stringify({ 
+            id: newId, nama, umur, perokok, status: 'OK' 
+        })));
+
+    } catch(e) { console.log('❌ Error Saving:', e); }
+    
     res.redirect('/');
 });
 
 const PORT = process.env.PORT || 3300; 
-app.listen(PORT, () => console.log(`🚀 Server FINAL KEMBALI KE LAPTOP jalan di port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server DB LEVEL 3 jalan di port ${PORT}`));
