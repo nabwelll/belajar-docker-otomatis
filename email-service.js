@@ -1,80 +1,46 @@
-const express = require('express');
 const amqp = require('amqplib');
-const app = express();
 
-let retryCount = 0;
-const MAX_RETRIES = 10;
+// Simulasi kirim email (tunggu 1 detik)
+const kirimEmail = (data) => {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            console.log(`📧 [EMAIL TERKIRIM] Kepada: ${data.nama} | Isi: "Halo ${data.nama}, polis asuransi rokokmu (${data.perokok}) sudah aktif!"`);
+            resolve();
+        }, 1000);
+    });
+};
 
 async function startWorker() {
     try {
-        console.log(`🔄 Attempt ${retryCount + 1}/${MAX_RETRIES} - Connecting to RabbitMQ... `);
+        // 👇 INI PERUBAHAN PENTINGNYA!
+        // Baca variable RABBITMQ_URL dari Railway. Kalau kosong, baru pake 'amqp://rabbitmq'
+        const connectionString = process.env.RABBITMQ_URL || 'amqp://rabbitmq';
         
-        // Connect dengan timeout
-        const connection = await amqp.connect('amqp://rabbitmq', {
-            heartbeat: 60,
-        });
+        console.log("⏳ Worker mencoba konek ke RabbitMQ...");
+        const conn = await amqp.connect(connectionString);
+        const ch = await conn.createChannel();
         
-        console.log('✅ Connected to RabbitMQ!');
-        
-        const channel = await connection.createChannel();
         const queue = 'antrian_email';
-
-        // Assert queue
-        await channel.assertQueue(queue, { durable: true });
-        console.log("📬 Menunggu pesan di antrian...");
+        await ch.assertQueue(queue);
         
-        // Reset retry count setelah berhasil connect
-        retryCount = 0;
+        console.log(`✅ TUKANG POS SIAP! Menunggu pesan di antrian '${queue}'...`);
 
-        // Handle connection errors
-        connection.on('error', (err) => {
-            console.log('❌ RabbitMQ connection error:', err.message);
-            setTimeout(startWorker, 5000);
-        });
-
-        connection.on('close', () => {
-            console.log('⚠️ RabbitMQ connection closed, reconnecting...');
-            setTimeout(startWorker, 5000);
-        });
-
-        // Consume messages
-        channel.consume(queue, (msg) => {
+        ch.consume(queue, async (msg) => {
             if (msg !== null) {
                 const data = JSON.parse(msg.content.toString());
+                console.log(`📩 Menerima tugas: Kirim ke ${data.nama}`);
                 
-                console.log(`⏳ Processing:  ${data.nama}... `);
+                await kirimEmail(data);
                 
-                // Simulate email sending (2 seconds delay)
-                setTimeout(() => {
-                    console.log(`📧 MENGIRIM EMAIL KE: ${data.nama} | Umur: ${data.umur || 'N/A'} | Perokok: ${data.perokok || 'N/A'}`);
-                    channel.ack(msg);
-                }, 2000);
+                ch.ack(msg); // Lapor ke Bos RabbitMQ: "Tugas Selesai!"
             }
         });
 
-    } catch (error) {
-        console.log(`❌ Error Worker (Attempt ${retryCount + 1}/${MAX_RETRIES}):`, error.message);
-        
-        retryCount++;
-        
-        if (retryCount < MAX_RETRIES) {
-            const delay = Math.min(retryCount * 2000, 10000); // Exponential backoff, max 10s
-            console.log(`⏰ Retrying in ${delay/1000} seconds...`);
-            setTimeout(startWorker, delay);
-        } else {
-            console.log('💀 Max retries reached. Giving up.');
-            process.exit(1);
-        }
+    } catch (err) {
+        console.error("❌ Error Worker (Gagal Konek):", err.message);
+        // Coba lagi setelah 5 detik (Retry Logic)
+        setTimeout(startWorker, 5000);
     }
 }
 
-// Start worker after 5 seconds (give RabbitMQ time to fully start)
-setTimeout(() => {
-    console.log('🚀 Starting Email Worker...');
-    startWorker();
-}, 5000);
-
-const PORT = 80;
-app.listen(PORT, () => {
-    console.log(`✅ Email Service HTTP server running on port ${PORT}`);
-});
+startWorker();
