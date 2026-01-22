@@ -18,7 +18,7 @@ const pool = new Pool({
     host: process.env.DB_HOST || 'db', // Nama service di docker-compose
     database: process.env.DB_NAME || 'asuransi_db',
     password: process.env.DB_PASS || 'password123',
-    port: 5432,
+    port: process.env.DB_PORT || 5432,
 });
 
 // Buat Tabel Otomatis saat server nyala
